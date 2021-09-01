@@ -1,0 +1,308 @@
+---
+title: Mathematical Models of PCR Random Access in Multidimensional DNA Storage System
+author: "Xin Song (xin.song@duke.edu)"
+date: "2/5/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+***
+> The following scripts implement mathematical models described in our manuscript titled "Multidimensional Data Organization and Random Access in Large-Scale DNA Storage Systems". Please refer to the manuscript for full details on the model assumptions, formulation, and analysis.
+
+***
+
+#### Setting up an example DNA storage pool for PCR random access
+```{r Setting up an example DNA storage pool for PCR random access}
+library(truncnorm)
+n = 20000 # unique data-encoding oligos in the storage pool
+r = 10 # average physical redundancy (copy number) of oligos
+s_pool <- rep(r, n) # initial pool of oligos before random access
+pcr_cyc = 10 # number of PCR cycles (used in simulations of Basic Models 0-3)
+threshold_ratio = 0.10 # used to define the "error threshold" in PCR models
+```
+
+***
+
+#### Basic Model 0: Perfect PCR
+```{r Basic Model 0: Perfect PCR}
+amp_pool <- s_pool
+pcr_eff <- 2
+amp_pool <- amp_pool*pcr_eff^pcr_cyc # See model assumptions in manuscript
+
+avg <- mean(amp_pool)
+threshold <- avg*threshold_ratio
+false_negative_count <- sum(amp_pool<threshold) # an amplicon is considered a false negative if its copy number is less than the threshold
+false_negative_percent <- (false_negative_count/length(amp_pool))*100
+no_amplify <- sum(amp_pool==r)
+
+par(mfrow=c(1,3), oma = c(0, 0, 2, 0))
+x <- seq(1,length(amp_pool),1)
+plot(x, amp_pool, xlab="Oligo ID", ylab="Copy number", type="h", cex.lab=1.1)
+plot(x, sort(amp_pool, decreasing=TRUE), xlab="Oligo rank", ylab="Copy number", type="h", cex.lab=1.1)
+hist(amp_pool, xlab="Copy number", ylab="Oligo counts", cex.lab=1.1)
+mtext("Basic Model 0: Perfect PCR", outer = TRUE, cex = 1)
+cat("Mean copy number:",round(avg),"; Threshold:", round(threshold),"\n")
+cat("False negatives:", false_negative_count,"in",length(amp_pool),"=",round(false_negative_percent,1), "%\n")
+# cat("Unamplified oligos:",no_amplify,"\n")
+```
+
+***
+
+#### Basic Model 1: PCR with sequence-specific bias
+```{r Basic Model 1: PCR with sequence-specific bias}
+amp_pool <- s_pool
+
+pcr_eff <- rtruncnorm(length(amp_pool), a=1, b=2, mean=1.85, sd=0.07) # Model PCR efficiency as a Gaussian random variable. See model assumptions in manuscript.
+
+PCR_bias <- function(pool, efficiency, cycles) {
+  pool <- pool*efficiency^cycles
+  return(pool)
+}
+amp_pool <- PCR_bias(amp_pool, pcr_eff, pcr_cyc)
+
+avg <- mean(amp_pool)
+threshold <- avg*threshold_ratio
+false_negative_count <- sum(amp_pool<threshold)
+false_negative_percent <- (false_negative_count/length(amp_pool))*100
+no_amplify <- sum(amp_pool==r)
+
+par(mfrow=c(1,3), oma = c(0, 0, 2, 0))
+x <- seq(1,length(amp_pool),1)
+plot(x, amp_pool, xlab="Oligo ID", ylab="Copy number", type="h", cex.lab=1.1)
+plot(x, sort(amp_pool, decreasing=TRUE), xlab="Oligo rank", ylab="Copy number", type="h", cex.lab=1.1)
+hist(amp_pool, xlab="Copy number", ylab="Oligo counts", cex.lab=1.1)
+mtext("Basic Model 1: PCR with sequence-specific bias", outer = TRUE, cex = 1)
+cat("Mean copy number:",round(avg),"; Threshold:", round(threshold),"\n")
+cat("False negatives:", false_negative_count,"in",length(amp_pool),"=",round(false_negative_percent,1), "%\n")
+# cat("Unamplified oligos:",no_amplify,"\n")
+```
+
+***
+
+#### Basic Model 2: PCR with stochasticity
+```{r Basic Model 2: PCR with stochasticity}
+amp_pool <- s_pool
+pcr_eff <- 1.85
+
+# Model PCR amplification as a Galton-Watson stochastic branching process. See model assumptions in manuscript.
+PCR_stochastic <- function(pool, efficiency, cycles) {
+  for(i in 1:cycles) {
+    pool <- pool + rbinom(length(pool), size=pool, prob=efficiency-1) # rbinom(observations, trials, prob)
+    # cat("PCR cycle", i, ":", pool, "\n")
+  }
+  return(pool)
+}
+amp_pool <- PCR_stochastic(amp_pool, pcr_eff, pcr_cyc)
+
+avg <- mean(amp_pool)
+threshold <- avg*threshold_ratio
+false_negative_count <- sum(amp_pool<threshold)
+false_negative_percent <- (false_negative_count/length(amp_pool))*100
+no_amplify <- sum(amp_pool==r)
+
+par(mfrow=c(1,3), oma = c(0, 0, 2, 0))
+x <- seq(1,length(amp_pool),1)
+plot(x, amp_pool, xlab="Oligo ID", ylab="Copy number", type="h", cex.lab=1.1)
+plot(x, sort(amp_pool, decreasing=TRUE), xlab="Oligo rank", ylab="Copy number", type="h", cex.lab=1.1)
+hist(amp_pool, xlab="Copy number", ylab="Oligo counts", cex.lab=1.1)
+mtext("Basic Model 2: PCR with stochasticity", outer = TRUE, cex = 1)
+cat("Mean copy number:",round(avg),"; Threshold:", round(threshold),"\n")
+cat("False negatives:", false_negative_count,"in",length(amp_pool),"=",round(false_negative_percent,1), "%\n")
+# cat("Unamplified oligos:",no_amplify,"\n")
+```
+
+***
+
+#### Basic Model 3: PCR with stochasticity and sequence-specific bias
+```{r Basic Model 3: PCR with stochasticity and sequence-specific bias}
+amp_pool <- s_pool
+pcr_eff <- rtruncnorm(n, a=1, b=2, mean=1.85, sd=0.07) # See model assumptions in manuscript.
+
+PCR_stoc_and_bias <- function(pool, efficiency, cycles) {
+  for(i in 1:cycles) {
+    pool <- pool + rbinom(length(pool), size=pool, prob=efficiency-1) # See model assumptions in manuscript.
+    # cat("PCR cycle", i, ":", pool, "\n")
+  }
+  return(pool)
+}
+amp_pool <- PCR_stoc_and_bias(amp_pool, pcr_eff, pcr_cyc)
+
+avg <- mean(amp_pool)
+threshold <- avg*threshold_ratio
+false_negative_count <- sum(amp_pool<threshold)
+false_negative_percent <- (false_negative_count/length(amp_pool))*100
+no_amplify <- sum(amp_pool==r)
+
+par(mfrow=c(1,3), oma = c(0, 0, 2, 0))
+x <- seq(1,length(amp_pool),1)
+plot(x, amp_pool, xlab="Oligo ID", ylab="Copy number", type="h", cex.lab=1.1)
+plot(x, sort(amp_pool, decreasing=TRUE), xlab="Oligo rank", ylab="Copy number", type="h", cex.lab=1.1)
+hist(amp_pool, xlab="Copy number", ylab="Oligo counts", cex.lab=1.1)
+mtext("Basic Model 3: PCR with stochasticity and sequence-specific bias", outer = TRUE, cex = 1)
+cat("Mean copy number:",round(avg),"; Threshold:", round(threshold),"\n")
+cat("False negatives:", false_negative_count,"in",length(amp_pool),"=",round(false_negative_percent,1), "%\n")
+# cat("Unamplified oligos:",no_amplify,"\n")
+```
+
+***
+
+#### Modeling nested PCR random access with stochasticity
+```{r Modeling nested PCR random access with stochasticity}
+PCR_random_access <- function(pool, nested, FPpoolPrvCyc, target_percent, cycles) {
+  if(nested==0 | length(FPpoolPrvCyc)==0) { # for random-access patterns requiring only one PCR reaction
+    targets <- pool[1:(length(pool)*target_percent)] # target oligos
+    non_targets <- pool[-(1:(length(pool)*target_percent))] # non-target oligos
+    
+    desired_amplicon <- PCR_stochastic(targets, pcr_eff, cycles)
+    spurious_amplicon <- PCR_stochastic(non_targets, spurious_eff, cycles)
+    
+    avg <- mean(desired_amplicon)
+    avg_spurious <- mean(spurious_amplicon)
+    threshold <- avg*threshold_ratio
+    false_negative_count <- sum(desired_amplicon<threshold)
+    false_negative_percent <- (false_negative_count/length(targets))*100
+    false_positive_count <- sum(spurious_amplicon>threshold)
+    false_positive_percent <- (false_positive_count/length(targets))*100
+    
+    # Tips: Un-comment the following code to analyze the detailed statistics.
+    
+    # cat("Mean copy number (desired amplicon):",round(avg),"; Threshold:", round(threshold),"\n")
+    # cat("Mean copy number (spurious amplicon):",round(avg_spurious),"\n")
+    # cat("False negatives:", false_negative_count,"in",length(targets),"=",round(false_negative_percent,1), "%\n")
+    # cat("False positives:", false_positive_count,"in",length(targets),"=",round(false_positive_percent,1), "%\n")
+    # 
+    # par(mfrow=c(1,3), oma = c(0, 0, 2, 0))
+    # x <- seq(1,length(targets),1)
+    # plot(x, desired_amplicon, xlab="Oligo ID (Desired)", ylab="Copy number", type="h")
+    # plot(x, sort(desired_amplicon, decreasing=TRUE), xlab="Oligo rank (Desired)", ylab="Copy number", type="h")
+    # hist(desired_amplicon, xlab="Copy number", ylab="Oligo counts (Desired)")
+    # mtext("Desired amplicons from PCR random access", outer = TRUE, cex = 1)
+    # 
+    # par(mfrow=c(1,3), oma = c(0, 0, 2, 0))
+    # x <- seq(1,length(non_targets),1)
+    # plot(x, spurious_amplicon, xlab="Oligo ID (Spurious)", ylab="Copy number", type="h")
+    # plot(x, sort(spurious_amplicon, decreasing=TRUE), xlab="Oligo rank (Spurious)", ylab="Copy number", type="h")
+    # hist(spurious_amplicon, xlab="Copy number", ylab="Oligo counts (Spurious)")
+    # mtext("Spurious amplicons from PCR random access", outer = TRUE, cex = 1)
+    
+    PCR_result <- list(false_negative_count, false_positive_count, false_negative_percent, false_positive_percent, desired_amplicon, spurious_amplicon)
+    return(PCR_result)
+  } 
+  
+  else { # for random-access patterns requiring a second (nested) PCR reaction
+    targets <- pool[1:(length(pool)*target_percent)] # target oligos
+    non_targets <- pool[-(1:(length(pool)*target_percent))] # non-target oligos
+    targets_FPPrvCyc <- FPpoolPrvCyc[1:(length(FPpoolPrvCyc)*target_percent)] # spurious amplicons (from the 1st PCR reaction) with primer binding sites targeted by the 2nd PCR
+    non_targets_FPPrvCyc <- FPpoolPrvCyc[-(1:(length(FPpoolPrvCyc)*target_percent))] # spurious amplicons (from the 1st PCR reaction) without primer binding sites targeted by the 2nd PCR
+    
+    desired_amplicon <- PCR_stochastic(targets, pcr_eff, cycles)
+    spurious_amplicon1 <- PCR_stochastic(non_targets, spurious_eff, cycles)
+    spurious_amplicon2 <- PCR_stochastic(targets_FPPrvCyc, pcr_eff, cycles)
+    spurious_amplicon3 <- PCR_stochastic(non_targets_FPPrvCyc, spurious_eff, cycles)
+    spurious_amplicon <- c(spurious_amplicon1,spurious_amplicon2,spurious_amplicon3)
+    
+    avg <- mean(desired_amplicon)
+    avg_spurious <- mean(spurious_amplicon)
+    threshold <- avg*threshold_ratio
+    false_negative_count <- sum(desired_amplicon<threshold)
+    false_negative_percent <- (false_negative_count/length(targets))*100
+    false_positive_count <- sum(spurious_amplicon>threshold)
+    false_positive_percent <- (false_positive_count/length(targets))*100
+    
+    # Tips: Un-comment the following code to analyze the detailed statistics.
+    
+    # cat("Mean copy number (desired amplicon):",round(avg),"; Threshold:", round(threshold),"\n")
+    # cat("Mean copy number (spurious amplicon):",round(avg_spurious),"\n")
+    # cat("False negatives:", false_negative_count,"in",length(targets),"=",round(false_negative_percent,1), "%\n")
+    # cat("False positives:", false_positive_count,"in",length(targets),"=",round(false_positive_percent,1), "%\n")
+    #
+    # par(mfrow=c(1,3), oma = c(0, 0, 2, 0))
+    # x <- seq(1,length(targets),1)
+    # plot(x, desired_amplicon, xlab="Oligo ID (Desired)", ylab="Copy number", type="h")
+    # plot(x, sort(desired_amplicon, decreasing=TRUE), xlab="Oligo rank (Desired)", ylab="Copy number", type="h")
+    # hist(desired_amplicon, xlab="Copy number", ylab="Oligo counts (Desired)")
+    # mtext("Desired amplicons from PCR random access", outer = TRUE, cex = 1)
+    # 
+    # par(mfrow=c(1,3), oma = c(0, 0, 2, 0))
+    # x <- seq(1,length(non_targets),1)
+    # plot(x, spurious_amplicon, xlab="Oligo ID (Spurious)", ylab="Copy number", type="h")
+    # plot(x, sort(spurious_amplicon, decreasing=TRUE), xlab="Oligo rank (Spurious)", ylab="Copy number", type="h")
+    # hist(spurious_amplicon, xlab="Copy number", ylab="Oligo counts (Spurious)")
+    # mtext("Spurious amplicons from PCR random access", outer = TRUE, cex = 1)
+    
+    PCR_result <- list(false_negative_count, false_positive_count, false_negative_percent, false_positive_percent, desired_amplicon, spurious_amplicon)
+    return(PCR_result)
+  }
+}
+```
+
+***
+
+#### Modeling the performance of different random-access patterns (by single-reaction PCR)
+```{r Modeling the performance of different random-access patterns (by single-reaction PCR)}
+
+pcr_eff <- 1.85 # PCR efficiency of target oligos
+spurious_eff <- 1.15 # spurious amplification efficiency of non-target oligos
+pcr_cyc_r1 <- 6 # total PCR cycles for the 1st PCR random-access reaction
+pcr_cyc_r2 <- 6 # total PCR cycles for the 2nd PCR random-access reaction
+
+RandomAccessResult_r1 <- list()
+FalseNegativeStats_r1 <- list()
+FalsePositiveStats_r1 <- list()
+DesiredAmplicon_r1 <- list()
+SpuriousAmplicon_r1 <- list()
+
+for(i in 1:9) { # target 10% to 90% of oligos in the PCR reaction
+  output <- PCR_random_access(s_pool, 0, 0, i/10, pcr_cyc_r1)
+  RandomAccessResult_r1[[i]] <- output
+  FalseNegativeStats_r1[[i]] <- unlist(RandomAccessResult_r1[[i]][3])
+  FalsePositiveStats_r1[[i]] <- unlist(RandomAccessResult_r1[[i]][4])
+  DesiredAmplicon_r1[[i]] <- unlist(RandomAccessResult_r1[[i]][5])
+  SpuriousAmplicon_r1[[i]] <- unlist(RandomAccessResult_r1[[i]][6])
+}
+
+plot(seq(10,90,10),unlist(FalsePositiveStats_r1),type="l",ylim=c(0,max(unlist(FalsePositiveStats_r1))*1.1),xlab="Target oligos retrieved by PCR (% of storage pool)",ylab="Error rate (%)",cex.lab=1.2)
+lines(seq(10,90,10),unlist(FalseNegativeStats_r1),lty=3)
+axis(1,at=seq(10,90,10),labels=seq(10,90,10))
+legend("topright",legend=c("False positives","False negatives"),lty=c(1, 3),lwd=1)
+```
+
+***
+
+#### Modeling the performance of different random-access patterns (by nested-reaction PCR)
+```{r Modeling the performance of different random-access patterns (by nested-reaction PCR)}
+
+RandomAccessResult_r2 <- list()
+FalseNegativeStats_r2 <- list()
+FalsePositiveStats_r2 <- list()
+DesiredAmplicon_r2 <- list()
+SpuriousAmplicon_r2 <- list()
+
+par(mfrow = c(3, 3))
+par(oma = c(4, 4, 0, 0)) # make room for the overall x and y axis titles
+par(mar = c(2, 2, 3, 1)) # make the plots be closer together
+
+for(i in 1:9) { # target 10% to 90% of oligos in the 1st PCR reaction
+  for(j in 1:9) { # target 10% to 90% of oligos in the 2nd PCR reaction
+    output <- PCR_random_access(unlist(DesiredAmplicon_r1[[i]]), 1, unlist(SpuriousAmplicon_r1[[i]]), j/10, pcr_cyc_r2)
+    RandomAccessResult_r2[[j]] <- output
+    FalseNegativeStats_r2[[j]] <- unlist(RandomAccessResult_r2[[j]][3])
+    FalsePositiveStats_r2[[j]] <- unlist(RandomAccessResult_r2[[j]][4])
+    DesiredAmplicon_r2[[j]] <- unlist(RandomAccessResult_r2[[j]][5])
+    SpuriousAmplicon_r2[[j]] <- unlist(RandomAccessResult_r2[[j]][6])
+  }
+
+  plot(seq(10,90,10),unlist(FalsePositiveStats_r2),type="l",ylim=c(0,max(unlist(FalsePositiveStats_r2))*3),main=paste("Target oligos in 1st PCR:",i*10,"%"))
+  lines(seq(10,90,10),unlist(FalseNegativeStats_r2),lty=3)
+  axis(1,at=seq(10,90,10),labels=seq(10,90,10))
+  legend("topright",legend=c("False positives","False negatives"),lty=c(1, 3),lwd=1,cex=0.8)
+}
+
+mtext('Target oligos in 2nd PCR (%)', side = 1, outer = TRUE, line = 2)
+mtext('Error rate (%)', side = 2, outer = TRUE, line = 2)
+```
